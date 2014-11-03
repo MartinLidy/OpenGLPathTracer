@@ -1,4 +1,7 @@
 #define FaceCount 1023
+#define PI 3.14
+
+//layout(location = 0) out vec3 colorTex;
 
 uniform vec2 iResolution;
 uniform float verts[600*3];
@@ -6,27 +9,63 @@ uniform int faces[600*2];
 uniform int faceCount;
 uniform int faceMat[900];
 uniform float Materials[6*3];
+uniform int randomSeed;
+uniform int sampleNumber;
+uniform sampler2D lastFrame;
 
+//pixel = last + current/(sampleNumber+1)
 
 // -- CONSTANTS --//
 
 // Lights
-vec3 LPos = vec3(-15.0,-10.0,10.0);
+vec3 LPos = vec3(15.0,-15.0,10.0);
+float LRadius = 2.0;
+
+struct Light
+{
+  vec3 color;
+  vec3 position;
+  float radius;
+  float brightness;
+};
+
+const int MAX_LIGHTS = 1;
+Light L1 = Light(vec3(1.0,0.0,0.5),vec3(15.0,-15.0,10.0),0.10,1.0);
+Light L2 = Light(vec3(1.0),vec3(0.0,0.0,10.0),2.0,1.0);
+
+Light[2] LIGHTS = {L1,L2};
+
 vec3 ambientLight = vec3(0.0,0.0,0.0);
 
 // Camera //
+float FOV = 0.95f;
 vec3 camPos = vec3(1.0,-13.0,5.0);
 vec3 forward = normalize(vec3(0.0,1.0,0.0));
 vec3 up      = normalize(vec3(0.0,0.0,1.0));
 vec3 right = normalize(cross(forward, up));
-//up = normalize(cross(right, forward));
 
-// Scene
+
+// HDR tonemapping
+vec3 tonemapping(vec3 color){
+	float max = length(color);
+	color = color/(max - 0.1);
+
+	return color;
+}
 
 
 // Random float
-float rand(vec2 co){
-    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+float rand(vec2 co, float min, float max){
+    return min + (max-min)*fract(sin(dot(co.xy*randomSeed ,vec2(12.9898,78.233))) * 43758.5453);
+}
+
+float rand() {
+	return fract(sin(randomSeed)*43758.5453123);
+}
+
+vec3 jitter(vec3 d, float phi, float sina, float cosa) {
+	vec3 w = normalize(d), u = normalize(cross(w.yzx, w)), v = cross(w, u);
+	return (u*cos(phi) + v*sin(phi)) * sina + w * cosa;
 }
 
 // Floor plane
@@ -44,10 +83,6 @@ bool plane(vec3 pos, vec3 norm, vec3 ro, vec3 rd, inout vec3 hit, inout float di
 // Implicit Sphere
 vec4 sphere(vec3 ray, vec3 dir, vec3 center, float radius)
 {
-	// parallel light direction
-	vec3 L = normalize(vec3(-1.0,-0.1,-0.2));
-
-	//
 	vec3 rc = center;
 	float c = dot(rc, rc) - (radius*radius);
 	float b = dot(dir, rc);
@@ -63,22 +98,39 @@ vec4 sphere(vec3 ray, vec3 dir, vec3 center, float radius)
 	return vec4(1.0 - clamp(-1.0 + (1.0 + t)*d, 0.0, 1.0));
 }
 
-// Point lighting
-float lightFace(vec3 N, vec3 Pos){
+// get soft shadow Point Light location
+vec3 getLightPos(int index){
+	LPos = LIGHTS[index].position;//LIGHTS[index].position;
+	vec3 softLPos = LPos - vec3(rand(gl_FragCoord.xy ,-LRadius/2,LRadius/2));
+	return softLPos;
+}
 
-	// Light attenuation //
-	float Ldist = length(LPos - Pos);
-	float a = 0.01;
-	float b = 0.001;
-	float att = 1.0 / (1.0 + a*Ldist + b*Ldist*Ldist);
+// Point lighting
+vec3 lightFace(vec3 N, vec3 Pos){
+	int i = 0;
+	vec3 sum = vec3(0.0);
+
+	// Each light
+	for(i=0;i<MAX_LIGHTS;i++){
 	
-	return clamp(dot(N, normalize(LPos - Pos)) * att,0.0f,1.0f);
+		vec3 softLPos = getLightPos(i);
+
+		// Light attenuation //
+		float Ldist = length(softLPos - Pos);
+		float a = 0.01;
+		float b = 0.001;
+		float att = 1.0 / (1.0 + a*Ldist + b*Ldist*Ldist);
+
+		sum += clamp(dot(N, normalize(softLPos - Pos)) * att,0.0f,1.0f) * LIGHTS[i].color * LIGHTS[i].brightness;
+	}
+	
+	return sum;
 }
 
 // Geometry
 bool triangle(vec3 v0, vec3 v1, vec3 v2, vec3 ro, vec3 rd, inout vec3 hit, inout float dist, inout vec3 norm)
 {
-	vec3 cubePos = vec3(0.0,-3.0,7.0);
+	vec3 cubePos = vec3(0.0,-5.0,0.0);
 	v0 = cubePos + v0;
 	v1 = cubePos + v1;
 	v2 = cubePos + v2;
@@ -160,21 +212,43 @@ vec3 getPointColor( int faceIndex ){
 		return vec3(1.0,0.9,0.9);
 	}
 
-	return vec3( Materials[faceMat[faceIndex]+0], Materials[faceMat[faceIndex]+1], Materials[faceMat[faceIndex]+2] );
+	return vec3( Materials[3*faceMat[faceIndex]+0], Materials[3*faceMat[faceIndex]+1], Materials[3*faceMat[faceIndex]+2] );
 }
 
-vec3 bounceRay( vec3 rayPos, vec3 rayDir){
-	vec3 norm;
-	vec3 hit = vec3(0.0);
+vec3 bounceRay( vec3 rayPos, vec3 rayDir, int depth){
+	int MAXDEPTH = 3;
+
+	vec3 norm =  vec3(0.0);
+	vec3 hit  =  vec3(0.0);
 	vec3 point_color = vec3(0.0);
 	int objIndex;
 	
-	// Check ray intersection
-	objIndex = getIntersection( rayPos, rayDir, hit, norm);
+	// Recursion hack
+	while(depth <= MAXDEPTH){
 
-	// Did hit geometry
-	if(objIndex != -1){
-		point_color = getPointColor(objIndex) * vec3(lightFace(norm, hit));
+		depth += 1;
+
+		// Monte carlo
+		vec3 l0 = hit - LIGHTS[0].position;
+		float cos_a_max = sqrt(1. - clamp(LIGHTS[0].radius * LIGHTS[0].radius / dot(l0, l0), 0., 1.));
+		float cosa = mix(cos_a_max, 1., rand());
+
+		vec3 l = jitter(l0, 2.0*PI*rand(), sqrt(1.0 - cosa*cosa), cosa);
+		//rayDir = hit - l;
+
+		
+		// Check ray intersection
+		objIndex = getIntersection( rayPos, normalize(rayDir), hit, norm);
+
+		// Did hit geometry
+		if(objIndex != -1){
+			point_color += getPointColor(0) * lightFace(norm, hit) * 1.0/depth;
+		}
+
+		// cancel the iterations
+		else{
+			depth = MAXDEPTH + 1;
+		}
 	}
 
 	return point_color;
@@ -202,60 +276,69 @@ vec3 traceRay( vec3 rayPos, vec3 rayDir, int currentBounce)
 
 	// Did hit geometry
 	if(objIndex != -1){
-		point_color = getPointColor(objIndex) * vec3(lightFace(norm, hit));
+		point_color += getPointColor(objIndex) * (lightFace(norm, hit) + ambientLight);
 	}
 
 	// Hit the floor
 	else if(plane( vec3(0.0), normalize(vec3(0.0,0.0,1.0)), rayPos, rayDir, hit, dist))
 	{
+		norm = normalize(vec3(0.0,0.0,1.0));
+
 		// Plane stuff
 		float scale = 0.4;
 
 		//do this calculation for all x, y, z, and it will work regardless of normal
 		if ( mod( round( abs(hit.x)*scale) + round(abs(hit.y)*scale) + round(abs(hit.z)*scale), 2.0f) < 1.0){
-			point_color = vec3(lightFace(vec3(0.0,0.0,1.0), hit));
+			point_color += lightFace(vec3(0.0,0.0,1.0), hit);
 		}	
 		else{
-			point_color = vec3(1.0,0.0,0.0) * lightFace(vec3(0.0,0.0,1.0), hit);
+			point_color =+ vec3(1.0,0.0,0.0) * lightFace(vec3(0.0,0.0,1.0), hit);
 		}
 	}
 	
-	// SHADOWS
-	bool isShadow = false;
-	int shadowIndex = -1;
-	vec3 shadowRayDir = normalize(LPos-hit);
-	vec3 shadowRayPos = hit;
+	// SHADOWS //
+	int i = 0;
+	
+	// for each light
+	for(i=0;i<MAX_LIGHTS;i++){
 
-	float distToLight = length(LPos - hit);
+		vec3 softLPos = getLightPos(i);
+		bool isShadow = false;
+		int shadowIndex = -1;
+		vec3 shadowRayDir = normalize(softLPos-hit);
+		vec3 shadowRayPos = hit;
 
-	// need a faster method, it can break the loop as soon as
-    // it finds an intersection.  we dont need the closest
-	shadowIndex = getIntersection( shadowRayPos, -shadowRayDir, shadowhit, norm2);
+		float distToLight = length(softLPos - hit);
 
-	// Hits another object
-    if (shadowIndex != -1){
+		// need a faster method, it can break the loop as soon as
+		// it finds an intersection.  we dont need the closest
+		shadowIndex = getIntersection( shadowRayPos, -shadowRayDir, shadowhit, norm2);
+
+		// Hits another object
+		if (shadowIndex != -1){
 		
-		// if the intersection is before or after the light 
-		float l = length(hit - shadowhit);
+			// if the intersection is before or after the light 
+			float l = length(hit - shadowhit);
 
-		if( (l>0.0001) && (l < distToLight) ){
-			isShadow = true;
+			if( (l>0.0001) && (l < distToLight) ){
+				isShadow = true;
+			}
 		}
-    }
 
-	if (isShadow){
-		point_color = point_color*0.1 + vec3(ambientLight);
+		// --
+		bounce_color = bounceRay(hit, norm,0);
+
+		if (isShadow){
+			point_color = point_color*(0.1+bounce_color) + vec3(ambientLight);
+		}
+		point_color += bounce_color*0.2;
 	}
-
-	bounce_color = bounceRay(hit, norm);
-	point_color += bounce_color*0.1;
 
 	return point_color;
 }
 
 void main()
 {
-
 	vec3 point_color;
 	vec3 hit;
 	vec3 norm;
@@ -282,13 +365,21 @@ void main()
 
 	// --
 	vec3 rayOrigin = camPos + forward;
-	vec3 rayDir = normalize(screenCoords.x*right + screenCoords.y*up + forward * vec3(0.95));
+	vec3 rayDir = normalize(screenCoords.x*right + screenCoords.y*up + forward * FOV);
 
 	// GEOMETRY
-	sum.xyz = traceRay(rayOrigin, rayDir, 0);//, faces, verts, faceCount, faceMat, Materials);
+	sum.xyz = traceRay(rayOrigin, rayDir, 0);
 	
 	// Lit Sphere
 	//sum += sphere( rayOrigin, rayDir, LPos, 0.001f);
 
-	gl_FragColor = sum;
+	// Save frame
+	//colorTex.rgb = sum.rgb;
+	//gl_FragColor.rgb = sum.rgb;
+
+	// FBP convergance
+	gl_FragData[0] = sum;//texture2D( lastFrame, gl_TexCoord[0].st);
+	gl_FragData[1] = vec4(0.0, 1.0, 0.0, 1.0);
 }
+
+//sum = (last*samples + current)/(samples+1);

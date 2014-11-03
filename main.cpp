@@ -16,6 +16,9 @@ GLuint   program_object;
 GLuint   vertex_shader;
 GLuint   fragment_shader;
 
+GLuint framebufferID;// = glGenFramebuffersEXT();											// create a new framebuffer
+GLuint colorTextureID;// = glGenTextures();												// and a new texture used as a color buffer
+
 //
 double newtime, oldtime;
 // Log information
@@ -102,7 +105,7 @@ int *FacesToMats(objLoader* object, int faceCount){
 
 	// Each face
 	for (int i = 0; i < faceCount; i++){
-		faceMats[i] = 3 * object->faceList[i]->material_index;
+		faceMats[i] = object->faceList[i]->material_index;
 	}
 
 	return faceMats;
@@ -239,65 +242,30 @@ bool init(void){
    float* materials = GetObjectMaterials(loadedObject, loadedObject->faceCount);
    int* faceMats = FacesToMats(loadedObject, loadedObject->faceCount);
 
-   // Global Variables
-   int BufferUBO; // Location for the UBO given by OpenGL
-   int BufferIndex = 0; // Index to use for the buffer binding (All good things start at 0 )
-   int UniformBlockLocation; // Uniform Block Location in the program given by OpenGL
+    // FBO
+	glGenFramebuffersEXT(1, &framebufferID);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID); 						// switch to the new framebuffer
 
+	glGenTextures(1, &colorTextureID);
+	glBindTexture(GL_TEXTURE_2D, colorTextureID);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_INT, NULL);	// Create the texture data
 
-   // Structs
-   //[Serializable]
-   //[StructLayout(LayoutKind.Sequential)]
-   /*
-   struct Light {
-	   float X;
-	   float Y;
-	   float Z;
-   };
+	//
+	//glFramebufferTexture(GL_DRAW_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, colorTextureID, 0);
+	glGenRenderbuffersEXT(1, &framebufferID);
+	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, framebufferID);
+	glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, 512, 512);
+	glFramebufferRenderbufferEXT(GL_DRAW_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, framebufferID);
 
-   struct colors0
-   {
-	   Light Lights[4];
-   };
+	// initialize color texture
+	//glBindTexture(GL_TEXTURE_2D, colorTextureID);									// Bind the colorbuffer texture
+	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);				// make it linear filterd
+	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_INT, NULL);	// Create the texture data
+	//glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTextureID, 0); // attach it to the framebuffer
 
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+   //}
 
-   GLuint m_lightsUBO, uniformBlockIndex, uindex, vshad_id, fshad_id, prog_id;
-   colors0 UBOData;
-   UBOData.Lights[0].X = 1.0;
-
-   GLuint vbuffer;
-   //glGenBuffers(1, &vbuffer);
-   //glBindBuffer(GL_UNIFORM_BUFFER_EXT, vbuffer);
-   //glBufferData(GL_UNIFORM_BUFFER_EXT, (sizeof(float)* 8 * UBOData.Length), UBOData, GL_STATIC_READ);
-
-   //Update the uniforms using ARB_uniform_buffer_object
-   glGenBuffers(1, &vbuffer);
-
-   //There's only one uniform block here, the 'colors0' uniform block. 
-   //It contains the color info for the gooch shader.
-   uniformBlockIndex = glGetUniformLocation(program_object, "colors0");
-
-   //Create UBO.
-   glBindBuffer(GL_UNIFORM_BUFFER_EXT, vbuffer);
-   glBufferData(GL_UNIFORM_BUFFER_EXT, (sizeof(float)* 3 * 4), NULL, GL_DYNAMIC_DRAW);
-
-   //Now we attach the buffer to UBO binding point 0...
-   
-   glBindBufferBaseNV(GL_UNIFORM_BUFFER_EXT, 0, vbuffer);
-   //And associate the uniform block to this binding point.
-   //glUniformBlockBinding(prog_id, uniformBlockIndex, 0);
-   //glError();
-
-   // 
-   //glGenBuffers(1, &m_lightsUBO); // this generates UBO, OK
-   //glBindBuffer(GL_UNIFORM_BUFFER, m_lightsUBO); // this binds it, OK
-   //glBufferData(GL_UNIFORM_BUFFER, (sizeof(float)* 8 * UBOData.Length), NULL, GL_DYNAMIC_DRAW); // this allocates space for the UBO. 
-   //glBindBufferRange(GL_UNIFORM_BUFFER, glGetUniformLocation(program_object, "lights"), m_lightsUBO, 0, (sizeof(float)* 8 * UBOData.Length)); // this binds UBO to Buffer Index
-
-   //glBindBuffer(GL_UNIFORM_BUFFER, m_lightsUBO);
-   //glBufferSubData(GL_UNIFORM_BUFFER, 0, (sizeof(float)* 8 * UBOData.Length), UBOData);
-   //glBindBuffer(GL_UNIFORM_BUFFER, 0);
-   */
 
 	printf("GL_VERSION:%s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
@@ -315,29 +283,68 @@ bool init(void){
 void render(void)  {
 	float scale = 10.0f;
 	
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);	// Clear Screen And Depth Buffer
-	glLoadIdentity();									// Reset The Current Modelview Matrix
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glLoadIdentity();
 
+	// Camera crap
 	gluLookAt(0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
 	
-	// bind the GLSL program	
-	// this means that from here the GLSL program attends all OpenGL operations
+	//
 	glUseProgram(program_object);
+	glUniform1i(glGetUniformLocation(program_object, "randomSeed"), rand());
+
+	// Ray Start (Render to FBO)
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	glViewport(0, 0, 512, 512);
 
 	//
 	glBegin(GL_QUADS);
-		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, 0.5*scale, 0.0);
-		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, 0.5*scale, 0.0);
+	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
 	glEnd();
-	
-	// unbind the GLSL program
-	// this means that from here the OpenGL fixed functionality is used
+
 	glUseProgram(0);
+
+	glBindTexture(GL_TEXTURE_2D, colorTextureID);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 	
+	// Render to Quad
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, colorTextureID);
+	glDisable(GL_TEXTURE_2D);
+
+
+	// ------
+	// Set "renderedTexture" as our colour attachement #0
+	//glFramebufferTextureEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, colorTextureID, 0);
+
+	// Set the list of draw buffers.
+	//GLenum DrawBuffers[2] = { GL_FRONT_LEFT, GL_COLOR_ATTACHMENT0_EXT };
+	//glDrawBuffers(2, DrawBuffers);
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	//glActiveTexture(GL_COLOR_ATTACHMENT0_EXT);
+
+	
+	// --------------
+	// Activate Off-Screen FBO
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	glBindTexture(GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
+
+	// Back to the screen FB
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	//glActiveTexture(GL_TEXTURE0);
+
+	// ----- 
+	// THIS WORKS: unbind the GLSL program
+	// this means that from here the OpenGL fixed functionality is used
+	//glUseProgram(0);
+
 	// Swap The Buffers To Become Our Rendering Visible
-	glutSwapBuffers( );
+	glutSwapBuffers();
 
 	// Timer
 	newtime = glutGet(GLUT_ELAPSED_TIME);
@@ -390,7 +397,7 @@ int main(int argc, char** argv){
 	init();                                          // Our Initialization
 	glutDisplayFunc(render);                         // Register The Display Function
 	glutReshapeFunc(reshape);                        // Register The Reshape Handler
-	glutKeyboardFunc(keyboard);                      // Register The Keyboard Handler	
+	glutKeyboardFunc(keyboard);                      // Register The Keyboard Handler
 	//glutIdleFunc(render);                            // Do Rendering In Idle Time
 	glutMainLoop();                                  // Go To GLUT Main Loop
 	return 0;
