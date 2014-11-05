@@ -13,6 +13,7 @@
 using namespace std;
 
 GLuint   program_object;
+GLuint	 program_object2;
 GLuint   vertex_shader;
 GLuint   fragment_shader;
 
@@ -227,6 +228,8 @@ GLuint LoadShader(const char *vertex_path, const char *fragment_path) {
 bool init(void){    
    glClearColor(0.7f, 0.7f, 0.7f, 0.5f);	// Black Background
 
+   program_object2 = LoadShader("VertexShader.vert", "FragmentShader2.frag");
+
    program_object = LoadShader("VertexShader.vert", "FragmentShader.frag");
    glUseProgram(program_object);
 
@@ -294,28 +297,43 @@ void render(void)  {
 	glUniform1i(glGetUniformLocation(program_object, "randomSeed"), rand());
 
 	// Ray Start (Render to FBO)
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	glViewport(0, 0, 512, 512);
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	//glViewport(0, 0, 512, 512);
 
-	//
+	// ---
 	glBegin(GL_QUADS);
-	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
-	glVertex3f(0.5*scale, -0.5*scale, 0.0);
-	glVertex3f(0.5*scale, 0.5*scale, 0.0);
-	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
 	glEnd();
 
+	//glReadBuffer( GL_COLOR_ATTACHMENT0_EXT );
 	glUseProgram(0);
 
 	glBindTexture(GL_TEXTURE_2D, colorTextureID);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	//glBindTexture(GL_TEXTURE_2D, 0);
 	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 	
 	// Render to Quad
-	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, colorTextureID);
+	//glEnable(GL_TEXTURE_2D);
+	//glBindTexture(GL_TEXTURE_2D, colorTextureID);
 	glDisable(GL_TEXTURE_2D);
+
+
+	// ------------------------------------------- //
+	glUseProgram(program_object2);
+
+	glBegin(GL_QUADS);
+		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glEnd();
+
+	glUseProgram(0);
+	glBindTexture(GL_TEXTURE_2D, colorTextureID);
 
 
 	// ------
@@ -331,8 +349,8 @@ void render(void)  {
 	
 	// --------------
 	// Activate Off-Screen FBO
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	glBindTexture(GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	//glBindTexture(GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
 
 	// Back to the screen FB
 	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
