@@ -289,7 +289,7 @@ void render(void)  {
 	glViewport(0, 0, 512, 512);
 
 	//
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);        // switch to rendering on our FBO
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 1);        // switch to rendering on our FBO
 	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
 	glBindTexture(GL_TEXTURE0, colorTextureID); //bind textureA as out input texture
 
@@ -318,34 +318,25 @@ void render(void)  {
 	glUseProgram(0);
 
 	// DISPLAY ON SCREEN
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 1);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glUseProgram(program_object2);
 	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
-	glBindTexture(GL_TEXTURE_2D, colorTextureID); //bind either textureA
+	glBindTexture(GL_TEXTURE0, colorTextureID); //bind either textureA
 
 	location = glGetUniformLocation(program_object2, "texture");
-	glUniform1i(location, colorTextureID);
-	glUseProgram(0);
-
-	// Display FBO on screen
-	/*GLuint location = glGetUniformLocation(program_object2, "texture");
-	glUniform1i(location, colorTextureID);
-	//glUniformBufferEXT(program_object2, location, colorTextureID);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, colorTextureID);
-
-	glUseProgram(program_object2);
+	glUniform1i(location, GL_TEXTURE0);
 
 	glBegin(GL_QUADS);
 	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
 	glVertex3f(0.5*scale, -0.5*scale, 0.0);
 	glVertex3f(0.5*scale, 0.5*scale, 0.0);
 	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
-	glEnd();*/
+	glEnd();
+
+	glUseProgram(0);
 
 	// Swap The Buffers To Make Our Rendering Visible
 	glutSwapBuffers();
