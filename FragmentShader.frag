@@ -1,7 +1,7 @@
 #define FaceCount 1023
 #define PI 3.14
 
-//layout(location = 0) out vec3 colorTex;
+layout(location = 0) out vec3 colorTex;
 
 uniform vec2 iResolution;
 uniform float verts[600*3];
@@ -13,13 +13,10 @@ uniform int randomSeed;
 uniform int sampleNumber;
 uniform sampler2D lastFrame;
 
-//pixel = last + current/(sampleNumber+1)
-
 // -- CONSTANTS --//
 
 // Lights
 vec3 LPos = vec3(15.0,-15.0,10.0);
-float LRadius = 2.0;
 
 struct Light
 {
@@ -30,7 +27,7 @@ struct Light
 };
 
 const int MAX_LIGHTS = 1;
-Light L1 = Light(vec3(1.0,0.0,0.5),vec3(15.0,-15.0,10.0),0.10,1.0);
+Light L1 = Light(vec3(1.0),vec3(15.0,-15.0,10.0),0.75,1.0);
 Light L2 = Light(vec3(1.0),vec3(0.0,0.0,10.0),2.0,1.0);
 
 Light[2] LIGHTS = {L1,L2};
@@ -47,8 +44,9 @@ vec3 right = normalize(cross(forward, up));
 
 // HDR tonemapping
 vec3 tonemapping(vec3 color){
+	float bias = 0.1;
 	float max = length(color);
-	color = color/(max - 0.1);
+	color = color/(max - bias);
 
 	return color;
 }
@@ -59,7 +57,7 @@ float rand(vec2 co, float min, float max){
     return min + (max-min)*fract(sin(dot(co.xy*randomSeed ,vec2(12.9898,78.233))) * 43758.5453);
 }
 
-float rand() {
+float rand2() {
 	return fract(sin(randomSeed)*43758.5453123);
 }
 
@@ -101,7 +99,7 @@ vec4 sphere(vec3 ray, vec3 dir, vec3 center, float radius)
 // get soft shadow Point Light location
 vec3 getLightPos(int index){
 	LPos = LIGHTS[index].position;//LIGHTS[index].position;
-	vec3 softLPos = LPos - vec3(rand(gl_FragCoord.xy ,-LRadius/2,LRadius/2));
+	vec3 softLPos = LPos - vec3(rand(gl_FragCoord.xy ,-LIGHTS[index].radius,LIGHTS[index].radius));
 	return softLPos;
 }
 
@@ -225,17 +223,15 @@ vec3 bounceRay( vec3 rayPos, vec3 rayDir, int depth){
 	
 	// Recursion hack
 	while(depth <= MAXDEPTH){
-
 		depth += 1;
 
 		// Monte carlo
 		vec3 l0 = hit - LIGHTS[0].position;
 		float cos_a_max = sqrt(1. - clamp(LIGHTS[0].radius * LIGHTS[0].radius / dot(l0, l0), 0., 1.));
-		float cosa = mix(cos_a_max, 1., rand());
+		float cosa = mix(cos_a_max, 1., rand2());
 
-		vec3 l = jitter(l0, 2.0*PI*rand(), sqrt(1.0 - cosa*cosa), cosa);
+		vec3 l = jitter(l0, 2.0*PI*rand2(), sqrt(1.0 - cosa*cosa), cosa);
 		//rayDir = hit - l;
-
 		
 		// Check ray intersection
 		objIndex = getIntersection( rayPos, normalize(rayDir), hit, norm);
@@ -374,12 +370,7 @@ void main()
 	//sum += sphere( rayOrigin, rayDir, LPos, 0.001f);
 
 	// Save frame
-	//colorTex.rgb = sum.rgb;
-	//gl_FragColor.rgb = sum.rgb;
-
-	// FBP convergance
-	gl_FragData[0] = sum;//texture2D( lastFrame, gl_TexCoord[0].st);
-	gl_FragData[1] = vec4(0.0, 1.0, 0.0, 1.0);
+	colorTex.rgb = sum.rgb;
 }
 
 //sum = (last*samples + current)/(samples+1);

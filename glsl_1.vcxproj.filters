@@ -67,5 +67,8 @@
     <None Include="Backup.frag">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="FragmentShader2.frag">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

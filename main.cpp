@@ -22,6 +22,7 @@ GLuint colorTextureID;// = glGenTextures();												// and a new texture used
 
 //
 double newtime, oldtime;
+
 // Log information
 static void printProgramInfoLog(GLuint obj)
 {
@@ -132,7 +133,7 @@ objLoader * parseObj(){
 	objLoader *objData = new objLoader();
 	objData->load("test.obj");
 
-	// 
+	//
 	const int faceAmount = objData->faceCount;
 
 	printf("Number of vertices: %i\n", objData->vertexCount);
@@ -245,30 +246,24 @@ bool init(void){
    float* materials = GetObjectMaterials(loadedObject, loadedObject->faceCount);
    int* faceMats = FacesToMats(loadedObject, loadedObject->faceCount);
 
-    // FBO
+   //create texture A
+   glEnable(GL_TEXTURE_2D);
+   glGenTextures(1, &colorTextureID);
+   glBindTexture(GL_TEXTURE_2D, colorTextureID);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+	//create fboA and attach texture A to it
 	glGenFramebuffersEXT(1, &framebufferID);
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID); 						// switch to the new framebuffer
-
-	glGenTextures(1, &colorTextureID);
-	glBindTexture(GL_TEXTURE_2D, colorTextureID);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_INT, NULL);	// Create the texture data
-
-	//
-	//glFramebufferTexture(GL_DRAW_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0, colorTextureID, 0);
-	glGenRenderbuffersEXT(1, &framebufferID);
-	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, framebufferID);
-	glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, GL_DEPTH_COMPONENT24, 512, 512);
-	glFramebufferRenderbufferEXT(GL_DRAW_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_RENDERBUFFER_EXT, framebufferID);
-
-	// initialize color texture
-	//glBindTexture(GL_TEXTURE_2D, colorTextureID);									// Bind the colorbuffer texture
-	//glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);				// make it linear filterd
-	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_INT, NULL);	// Create the texture data
-	//glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTextureID, 0); // attach it to the framebuffer
-
-	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-   //}
-
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTextureID, 0);
+	
+	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+	if (status != GL_FRAMEBUFFER_COMPLETE_EXT)
+		printf("NOT COMPLETE!!!!\n\n");
 
 	printf("GL_VERSION:%s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
@@ -284,92 +279,82 @@ bool init(void){
 
 // Our rendering is done here
 void render(void)  {
-	float scale = 10.0f;
+	float scale = 5.00f;
 	
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 
 	// Camera crap
 	gluLookAt(0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-	
+	glViewport(0, 0, 512, 512);
+
 	//
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);        // switch to rendering on our FBO
+	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
+	glBindTexture(GL_TEXTURE0, colorTextureID); //bind textureA as out input texture
+
+	//glClearColor(0.0f, 1.0f, 0.0f, 0.5f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);            // Clear Screen And Depth Buffer on the fbo to red
+
+	// Render to FBO
 	glUseProgram(program_object);
+	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
+	glBindTexture(GL_TEXTURE0, colorTextureID); //bind textureA as out input texture
+
+	glDrawBuffers(1, &framebufferID);
+
+	////glUniform1i(GL_TEXTURE0, 0); //pass texture B as a sampler to the shader
+	GLuint location = glGetUniformLocation(program_object, "colorTex");
+	glUniform1i(location, colorTextureID);
 	glUniform1i(glGetUniformLocation(program_object, "randomSeed"), rand());
 
-	// Ray Start (Render to FBO)
-	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	//glViewport(0, 0, 512, 512);
-
-	// ---
 	glBegin(GL_QUADS);
-		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, 0.5*scale, 0.0);
-		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, 0.5*scale, 0.0);
+	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
 	glEnd();
 
-	//glReadBuffer( GL_COLOR_ATTACHMENT0_EXT );
 	glUseProgram(0);
 
+	// DISPLAY ON SCREEN
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 1);
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	glUseProgram(program_object2);
+	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
+	glBindTexture(GL_TEXTURE_2D, colorTextureID); //bind either textureA
+
+	location = glGetUniformLocation(program_object2, "texture");
+	glUniform1i(location, colorTextureID);
+	glUseProgram(0);
+
+	// Display FBO on screen
+	/*GLuint location = glGetUniformLocation(program_object2, "texture");
+	glUniform1i(location, colorTextureID);
+	//glUniformBufferEXT(program_object2, location, colorTextureID);
+
+	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, colorTextureID);
-	//glBindTexture(GL_TEXTURE_2D, 0);
-	glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-	
-	// Render to Quad
-	//glEnable(GL_TEXTURE_2D);
-	//glBindTexture(GL_TEXTURE_2D, colorTextureID);
-	glDisable(GL_TEXTURE_2D);
 
-
-	// ------------------------------------------- //
 	glUseProgram(program_object2);
 
 	glBegin(GL_QUADS);
-		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, -0.5*scale, 0.0);
-		glVertex3f(0.5*scale, 0.5*scale, 0.0);
-		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
-	glEnd();
+	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, -0.5*scale, 0.0);
+	glVertex3f(0.5*scale, 0.5*scale, 0.0);
+	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glEnd();*/
 
-	glUseProgram(0);
-	glBindTexture(GL_TEXTURE_2D, colorTextureID);
-
-
-	// ------
-	// Set "renderedTexture" as our colour attachement #0
-	//glFramebufferTextureEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, colorTextureID, 0);
-
-	// Set the list of draw buffers.
-	//GLenum DrawBuffers[2] = { GL_FRONT_LEFT, GL_COLOR_ATTACHMENT0_EXT };
-	//glDrawBuffers(2, DrawBuffers);
-	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	//glActiveTexture(GL_COLOR_ATTACHMENT0_EXT);
-
-	
-	// --------------
-	// Activate Off-Screen FBO
-	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	//glBindTexture(GL_TEXTURE_2D, GL_COLOR_ATTACHMENT0_EXT);
-
-	// Back to the screen FB
-	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
-	//glActiveTexture(GL_TEXTURE0);
-
-	// ----- 
-	// THIS WORKS: unbind the GLSL program
-	// this means that from here the OpenGL fixed functionality is used
-	//glUseProgram(0);
-
-	// Swap The Buffers To Become Our Rendering Visible
+	// Swap The Buffers To Make Our Rendering Visible
 	glutSwapBuffers();
 
 	// Timer
 	newtime = glutGet(GLUT_ELAPSED_TIME);
 	double difference = (newtime - oldtime)/1000;
 	oldtime = newtime;
-
-	std::cout << "Time: " << difference << std::endl;
+	//std::cout << "Time: " << difference << std::endl;
 }
 
 // Our Reshaping Handler (Required Even In Fullscreen-Only Modes)
@@ -386,8 +371,7 @@ void reshape(int w, int h){
 
 	// Variables
 	GLint loc = glGetUniformLocation(program_object, "iResolution");
-	if (loc != -1)
-	{
+	if (loc != -1){
 		std::cout << "Setting uniform variables" << std::endl;
 		glUniform2f(loc, w, h);
 	}
@@ -416,7 +400,7 @@ int main(int argc, char** argv){
 	glutDisplayFunc(render);                         // Register The Display Function
 	glutReshapeFunc(reshape);                        // Register The Reshape Handler
 	glutKeyboardFunc(keyboard);                      // Register The Keyboard Handler
-	//glutIdleFunc(render);                            // Do Rendering In Idle Time
+	glutIdleFunc(render);                            // Do Rendering In Idle Time
 	glutMainLoop();                                  // Go To GLUT Main Loop
 	return 0;
 }
