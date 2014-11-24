@@ -354,7 +354,7 @@ void render(void)  {
 	glEnd();
 
 	glPopMatrix();
-	glUseProgram(0);
+	//glUseProgram(0);
 
 	// Render the texture to screen - NEW
 	/*glUseProgram(program_object2);
