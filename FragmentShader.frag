@@ -1,17 +1,27 @@
+#version 420
+
 #define FaceCount 1023
 #define PI 3.14
 
-layout(location = 0) out vec3 colorTex;
+out vec3 colorWrite;
+//uniform vec3 colorRead;
+uniform sampler2D colorRead;
 
 uniform vec2 iResolution;
-uniform float verts[600*3];
-uniform int faces[600*2];
+uniform float verts[610*3];
+uniform int faces[650*2];
 uniform int faceCount;
 uniform int faceMat[900];
-uniform float Materials[6*3];
+uniform float Materials[7*4];
+
 uniform int randomSeed;
-uniform int sampleNumber;
+uniform int currentSample;
 uniform sampler2D lastFrame;
+
+//layout (std140) uniform Geometry
+//{
+//	vec4 position;
+//};
 
 // -- CONSTANTS --//
 
@@ -27,8 +37,8 @@ struct Light
 };
 
 const int MAX_LIGHTS = 1;
-Light L1 = Light(vec3(1.0),vec3(15.0,-15.0,10.0),0.75,1.0);
-Light L2 = Light(vec3(1.0),vec3(0.0,0.0,10.0),2.0,1.0);
+Light L2 = Light(vec3(1.0),vec3(15.0,-15.0,10.0),0.75,1.0);
+Light L1 = Light(vec3(1.0),vec3(1.0,-7.0,9.0), 0.5, 1.0);
 
 Light[2] LIGHTS = {L1,L2};
 
@@ -110,7 +120,6 @@ vec3 lightFace(vec3 N, vec3 Pos){
 
 	// Each light
 	for(i=0;i<MAX_LIGHTS;i++){
-	
 		vec3 softLPos = getLightPos(i);
 
 		// Light attenuation //
@@ -159,8 +168,8 @@ bool triangle(vec3 v0, vec3 v1, vec3 v2, vec3 ro, vec3 rd, inout vec3 hit, inout
 	norm = vec3( edge1.y*edge2.z - edge1.z*edge2.y, edge1.z*edge2.x - edge1.x*edge2.z, edge1.x*edge2.y - edge1.y*edge2.x);
 	norm = normalize(norm);
 
-	if (dot(norm, normalize(ro)) < 0.0f){
-		//norm = -1.0f * norm;
+	if (dot(norm, normalize(camPos)) < 0.0001f){	
+		norm = -1.0f * norm;
 	}
 
 	return true;
@@ -238,7 +247,9 @@ vec3 bounceRay( vec3 rayPos, vec3 rayDir, int depth){
 
 		// Did hit geometry
 		if(objIndex != -1){
-			point_color += getPointColor(0) * lightFace(norm, hit) * 1.0/depth;
+			point_color += getPointColor(objIndex) * lightFace(norm, hit) * 1/depth;
+			rayPos = hit;
+			rayDir = norm;
 		}
 
 		// cancel the iterations
@@ -253,6 +264,7 @@ vec3 bounceRay( vec3 rayPos, vec3 rayDir, int depth){
 vec3 traceRay( vec3 rayPos, vec3 rayDir, int currentBounce)
 {
 	int MAX_BOUNCE = 1;
+	int MAX_ITERATIONS = 4;
 
 	vec3 reflect_color = vec3(0.0);
 	vec3 refract_color = vec3(0.0);
@@ -266,69 +278,83 @@ vec3 traceRay( vec3 rayPos, vec3 rayDir, int currentBounce)
 
 	int objIndex;
 	bool hitCube = false;
+	int curReflection = 0;
 
-	// Check ray intersection
-	objIndex = getIntersection( rayPos, rayDir, hit, norm);
+	// ---
+	for(curReflection = 0; curReflection < MAX_ITERATIONS; curReflection++){
+	
+		// Check ray intersection
+		objIndex = getIntersection( rayPos, rayDir, hit, norm);
 
-	// Did hit geometry
-	if(objIndex != -1){
-		point_color += getPointColor(objIndex) * (lightFace(norm, hit) + ambientLight);
-	}
-
-	// Hit the floor
-	else if(plane( vec3(0.0), normalize(vec3(0.0,0.0,1.0)), rayPos, rayDir, hit, dist))
-	{
-		norm = normalize(vec3(0.0,0.0,1.0));
-
-		// Plane stuff
-		float scale = 0.4;
-
-		//do this calculation for all x, y, z, and it will work regardless of normal
-		if ( mod( round( abs(hit.x)*scale) + round(abs(hit.y)*scale) + round(abs(hit.z)*scale), 2.0f) < 1.0){
-			point_color += lightFace(vec3(0.0,0.0,1.0), hit);
-		}	
-		else{
-			point_color =+ vec3(1.0,0.0,0.0) * lightFace(vec3(0.0,0.0,1.0), hit);
+		// Did hit geometry
+		if(objIndex != -1){
+			point_color += getPointColor(objIndex) * (lightFace(norm, hit) + ambientLight);
 		}
-	}
+
+		// Hit the floor
+		else if(plane( vec3(0.0), normalize(vec3(0.0,0.0,1.0)), rayPos, rayDir, hit, dist))
+		{
+			norm = normalize(vec3(0.0,0.0,1.0));
+
+			// Plane stuff
+			float scale = 0.4;
+
+			//do this calculation for all x, y, z, and it will work regardless of normal
+			if ( mod( round( abs(hit.x)*scale) + round(abs(hit.y)*scale) + round(abs(hit.z)*scale), 2.0f) < 1.0){
+				point_color += lightFace(vec3(0.0,0.0,1.0), hit);
+			}	
+			else{
+				point_color =+ vec3(1.0,0.0,0.0) * lightFace(vec3(0.0,0.0,1.0), hit);
+			}
+		}
 	
-	// SHADOWS //
-	int i = 0;
+		// SHADOWS //
+		int i = 0;
+		int k = 0;
+
+		int SHADOW_SAMPLES = 1;
 	
-	// for each light
-	for(i=0;i<MAX_LIGHTS;i++){
+		// for each light
+		for(i=0;i<MAX_LIGHTS;i++){
 
-		vec3 softLPos = getLightPos(i);
-		bool isShadow = false;
-		int shadowIndex = -1;
-		vec3 shadowRayDir = normalize(softLPos-hit);
-		vec3 shadowRayPos = hit;
+			// samples
+			for(k=0;k<SHADOW_SAMPLES;k++){
+				vec3 softLPos = getLightPos(i);
+				bool isShadow = false;
+				int shadowIndex = -1;
+				vec3 shadowRayDir = normalize(softLPos-hit);
+				vec3 shadowRayPos = hit;
 
-		float distToLight = length(softLPos - hit);
+				float distToLight = length(softLPos - hit);
 
-		// need a faster method, it can break the loop as soon as
-		// it finds an intersection.  we dont need the closest
-		shadowIndex = getIntersection( shadowRayPos, -shadowRayDir, shadowhit, norm2);
+				// need a faster method, it can break the loop as soon as
+				// it finds an intersection.  we dont need the closest
+				shadowIndex = getIntersection( shadowRayPos, -shadowRayDir, shadowhit, norm2);
 
-		// Hits another object
-		if (shadowIndex != -1){
+				// Hits another object
+				if (shadowIndex != -1){
 		
-			// if the intersection is before or after the light 
-			float l = length(hit - shadowhit);
+					// if the intersection is before or after the light 
+					float l = length(hit - shadowhit);
 
-			if( (l>0.0001) && (l < distToLight) ){
-				isShadow = true;
+					if( (l>0.0001) && (l < distToLight) ){
+						isShadow = true;
+					}
+				}
+
+				// --
+				bounce_color = bounceRay(hit, norm,0);
+
+				if (isShadow){
+					point_color = point_color*(bounce_color + vec3(ambientLight));
+				}
+				else{
+					point_color += bounce_color*0.1;
+				}
 			}
 		}
 
-		// --
-		bounce_color = bounceRay(hit, norm,0);
-
-		if (isShadow){
-			point_color = point_color*(0.1+bounce_color) + vec3(ambientLight);
-		}
-		point_color += bounce_color*0.2;
-	}
+	} // Close loop
 
 	return point_color;
 }
@@ -365,12 +391,10 @@ void main()
 
 	// GEOMETRY
 	sum.xyz = traceRay(rayOrigin, rayDir, 0);
-	
-	// Lit Sphere
-	//sum += sphere( rayOrigin, rayDir, LPos, 0.001f);
 
 	// Save frame
-	colorTex.rgb = sum.rgb;
+	//colorWrite.rgb = (colorRead.rgb + sum.rgb)/2;
+	colorWrite.rgb = (texture2D(colorRead, gl_FragCoord.xy/512.0).rgb + sum.rgb*0.1);
 }
 
 //sum = (last*samples + current)/(samples+1);

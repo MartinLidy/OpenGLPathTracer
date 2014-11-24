@@ -1,13 +1,19 @@
 #include <math.h>
-#include "GLee.h"
 #include <iostream>
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <algorithm>
-#include <GL/gl.h>
+
+// OpenGL
+//#include "GL/glew.h"
+#include "Glee.h"
+//#define GLEW_STATIC
 #include <GL/glut.h>
+#include <GL/gl.h>
+
+// Geometry
 #include "objLoader.h"
 #include "obj_parser.h"
 using namespace std;
@@ -18,9 +24,13 @@ GLuint   vertex_shader;
 GLuint   fragment_shader;
 
 GLuint framebufferID;// = glGenFramebuffersEXT();											// create a new framebuffer
-GLuint colorTextureID;// = glGenTextures();												// and a new texture used as a color buffer
+GLuint framebuffer2ID;// = glGenFramebuffersEXT();											// create a new framebuffer
+
+GLuint colorTextureID;// = glGenTextures();		// and a new texture used as a color buffer
+GLuint colorTexture2ID;
 
 //
+int currentSample = 0;
 double newtime, oldtime;
 
 // Log information
@@ -246,25 +256,36 @@ bool init(void){
    float* materials = GetObjectMaterials(loadedObject, loadedObject->faceCount);
    int* faceMats = FacesToMats(loadedObject, loadedObject->faceCount);
 
-   //create texture A
+   //create the colorbuffer texture and attach it to the frame buffer - NEW
    glEnable(GL_TEXTURE_2D);
    glGenTextures(1, &colorTextureID);
+   glActiveTexture(GL_TEXTURE0);
    glBindTexture(GL_TEXTURE_2D, colorTextureID);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-	//create fboA and attach texture A to it
-	glGenFramebuffersEXT(1, &framebufferID);
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
-	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTextureID, 0);
+
+   glGenTextures(1, &colorTexture2ID);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, colorTexture2ID);
+   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 512, 512, 0, GL_RGBA, GL_INT, NULL);
+
+   // create buffers
+   glGenFramebuffersEXT(1, &framebufferID);
+   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebufferID);
+   glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTextureID, 0);
 	
-	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
-	if (status != GL_FRAMEBUFFER_COMPLETE_EXT)
-		printf("NOT COMPLETE!!!!\n\n");
+   glGenFramebuffersEXT(1, &framebuffer2ID);
+   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebuffer2ID);
+   glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, colorTexture2ID, 0);
 
+   printf("%c",glCheckFramebufferStatusEXT(framebufferID));
+ 
+   // Go back to regular frame buffer rendering
+   glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+
+   //create texture A - OLD
 	printf("GL_VERSION:%s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
 	glUniform1fv(glGetUniformLocation(program_object, "verts"), loadedObject->vertexCount*3, vertArray);
@@ -273,7 +294,14 @@ bool init(void){
 	glUniform1fv(glGetUniformLocation(program_object, "Materials"), loadedObject->materialCount*3, materials);
 	glUniform1i(glGetUniformLocation(program_object, "faceCount"), loadedObject->faceCount);
 	std::cout << "Finished sending memory: FaceCount:" << loadedObject->faceCount << std::endl;
- 
+	
+
+	GLuint uboExampleBlock;
+	glGenBuffers(1, &uboExampleBlock);
+	glBindBuffer(GL_UNIFORM_BUFFER_EXT, uboExampleBlock);
+	glBufferData(GL_UNIFORM_BUFFER_EXT, 150, NULL, GL_STATIC_DRAW);
+	glBindBuffer(GL_UNIFORM_BUFFER_EXT, 0);
+
 	return true;
 }
 
@@ -281,27 +309,93 @@ bool init(void){
 void render(void)  {
 	float scale = 5.00f;
 	
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	// Clear old data
 	glLoadIdentity();
+	glEnable(GL_TEXTURE_2D);
 
-	// Camera crap
-	gluLookAt(0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-	glViewport(0, 0, 512, 512);
-
-	//
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 1);        // switch to rendering on our FBO
-	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
-	glBindTexture(GL_TEXTURE0, colorTextureID); //bind textureA as out input texture
-
-	//glClearColor(0.0f, 1.0f, 0.0f, 0.5f);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);            // Clear Screen And Depth Buffer on the fbo to red
-
-	// Render to FBO
+	// Render to FBO - NEW
 	glUseProgram(program_object);
-	glActiveTexture(GL_TEXTURE0); //make texture register 0 active
-	glBindTexture(GL_TEXTURE0, colorTextureID); //bind textureA as out input texture
 
-	glDrawBuffers(1, &framebufferID);
+	glUniform1i(glGetUniformLocation(program_object, "currentSample"), currentSample); // set uniform
+	glUniform1i(glGetUniformLocation(program_object, "randomSeed"), rand()); // set uniform
+		
+	if (currentSample % 2 == 0){
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+		glDrawBuffer(framebufferID);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, colorTexture2ID);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, colorTextureID);
+
+		glUniform1i(glGetUniformLocation(program_object, "colorRead"), GL_TEXTURE0);
+		glUniform1i(glGetUniformLocation(program_object, "colorWrite"), GL_TEXTURE1);
+	} else{
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+		glDrawBuffer(framebuffer2ID);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, colorTexture2ID);
+
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, colorTextureID);
+
+		glUniform1i(glGetUniformLocation(program_object, "colorRead"), GL_TEXTURE1);
+		glUniform1i(glGetUniformLocation(program_object, "colorWrite"), GL_TEXTURE0);
+	}
+
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	glLoadIdentity();
+	glPushMatrix();
+	glBegin(GL_QUADS);
+		glVertex3f(-1, -1, 0.0);
+		glVertex3f(0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glEnd();
+
+	glPopMatrix();
+	glUseProgram(0);
+
+	// Render the texture to screen - NEW
+	/*glUseProgram(program_object2);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	glClearColor(1.0f, 0.0f, 0.0f, 0.5f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	glActiveTexture(GL_TEXTURE0);
+	if (currentSample % 2 == 0){
+		glBindTexture(GL_TEXTURE_2D, colorTexture2ID);
+	}
+	else{
+		glBindTexture(GL_TEXTURE_2D, colorTextureID);
+	}*/
+	//glUniform1i(glGetUniformLocation(program_object2, "texture"), GL_TEXTURE0);
+
+	//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	//glBindTexture(GL_TEXTURE_2D, colorTextureID);
+
+	//glClearColor(0.0f, 0.0f, 0.5f, 0.5f);
+
+	/*glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glLoadIdentity();
+	glPushMatrix();
+	
+	glBegin(GL_QUADS);
+		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+	glEnd();
+
+	glPopMatrix();*/
+	glDisable(GL_TEXTURE_2D);
+	glFlush();
+
+	// Render to FBO - OLD
+	/*
+	glUseProgram(program_object);
+	glActiveTexture(GL_TEXTURE_2D); //make texture register 0 active
+	glBindTexture(GL_TEXTURE_2D, colorTextureID); //bind textureA as out input texture
 
 	////glUniform1i(GL_TEXTURE0, 0); //pass texture B as a sampler to the shader
 	GLuint location = glGetUniformLocation(program_object, "colorTex");
@@ -313,12 +407,13 @@ void render(void)  {
 	glVertex3f(0.5*scale, -0.5*scale, 0.0);
 	glVertex3f(0.5*scale, 0.5*scale, 0.0);
 	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
-	glEnd();
+	glEnd();*/
 
 	glUseProgram(0);
+	currentSample += 1;
 
 	// DISPLAY ON SCREEN
-	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+	/*glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 1);
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -330,22 +425,23 @@ void render(void)  {
 	glUniform1i(location, GL_TEXTURE0);
 
 	glBegin(GL_QUADS);
-	glVertex3f(-0.5*scale, -0.5*scale, 0.0);
-	glVertex3f(0.5*scale, -0.5*scale, 0.0);
-	glVertex3f(0.5*scale, 0.5*scale, 0.0);
-	glVertex3f(-0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, -0.5*scale, 0.0);
+		glVertex3f(0.5*scale, 0.5*scale, 0.0);
+		glVertex3f(-0.5*scale, 0.5*scale, 0.0);
 	glEnd();
 
-	glUseProgram(0);
+	glUseProgram(0);*/
 
 	// Swap The Buffers To Make Our Rendering Visible
 	glutSwapBuffers();
+	Sleep(0.5);
 
 	// Timer
-	newtime = glutGet(GLUT_ELAPSED_TIME);
+	/*newtime = glewgettime();
 	double difference = (newtime - oldtime)/1000;
 	oldtime = newtime;
-	//std::cout << "Time: " << difference << std::endl;
+	std::cout << "Time: " << difference << std::endl;*/
 }
 
 // Our Reshaping Handler (Required Even In Fullscreen-Only Modes)
@@ -386,6 +482,17 @@ int main(int argc, char** argv){
 	glutInit(&argc, argv);                           // GLUT Initializtion
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);     // Display Mode (Rgb And Double Buffered)	
 	glutCreateWindow("GLSL PathTracer V0.01");       // Window Title 
+	
+	//glutInitContextVersion(3, 2)
+	//glutInitContextProfile(GLUT_CORE_PROFILE);
+
+
+	/*GLenum err = glewInit();
+	if (GLEW_OK != err)
+	{
+		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
+	}
+	fprintf(stdout, "Status: Using GLEW %s\n", glewGetString(GLEW_VERSION));*/
 	
 	init();                                          // Our Initialization
 	glutDisplayFunc(render);                         // Register The Display Function
